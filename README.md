@@ -1,177 +1,195 @@
-# React Native CarPlay and Android Auto
+# Using SceneDelegate with React Native
 
-Extend your React Native applications to car infotainment systems with `react-native-carplay`. Now supporting both Apple CarPlay and Android Auto.
+We will be swapping out the ObjC AppDelegate code with an Swift variant for SceneDelegate.
 
-### CarPlay
+The Project name in this example is `Example`, which you should replace with your own project name.
 
-![CarPlay Demo](https://media.giphy.com/media/Ffa4hukA3YMLh6U8fl/giphy.gif)
+### 1. Remove previous ObjC files
 
-### Android Auto
+- Delete `main.m`
+- Delete `AppDelegate.h` and `AppDelegate.mm`
 
-![Android Auto Demo](https://media.giphy.com/media/jAml2yehNwQ1mjFnxK/giphy.gif)
+### 2. Create the new Swift AppDelegate
 
-## Discord Channel
+Create a new `AppDelegate.swift` file, once prompted, click *Create bridging headers for Swift*.
 
-Come join us on our discord channel: https://discord.gg/b235pv6QHM
+Paste the following code to the `AppDelegate.swift`, it includes Flipper code.
 
-## Minimum version target requirements
+```swift
+// ios/AppDelegate.swift
+import UIKit
+import CarPlay
+import React
+#if DEBUG
+#if FB_SONARKIT_ENABLED
+import FlipperKit
+#endif
+#endif
 
-- Minimum iOS target is 14
-- Minimum Android target is 30
-- _No Expo support due to Scenes_
+@main
+class AppDelegate: UIResponder, UIApplicationDelegate, RCTBridgeDelegate {
 
-## Installing
+  var window: UIWindow?
+  var bridge: RCTBridge?;
+  var rootView: RCTRootView?;
 
-Add `react-native-carplay` to your project:
+  static var shared: AppDelegate { return UIApplication.shared.delegate as! AppDelegate }
 
-```bash
-# via yarn
-yarn add react-native-carplay --save
+  func sourceURL(for bridge: RCTBridge!) -> URL! {
+    #if DEBUG
+    return RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index");
+    #else
+    return Bundle.main.url(forResource:"main", withExtension:"jsbundle")
+    #endif
+  }
 
-# or via npm
-npm install react-native-carplay --save
+  func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+    initializeFlipper(with: application)
+    self.bridge = RCTBridge.init(delegate: self, launchOptions: launchOptions)
+    self.rootView = RCTRootView.init(bridge: self.bridge!, moduleName: "Example", initialProperties: nil)
+    return true
+  }
+
+  func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+    if (connectingSceneSession.role == UISceneSession.Role.carTemplateApplication) {
+      let scene =  UISceneConfiguration(name: "CarPlay", sessionRole: connectingSceneSession.role)
+      scene.delegateClass = CarSceneDelegate.self
+      return scene
+    } else {
+      let scene =  UISceneConfiguration(name: "Phone", sessionRole: connectingSceneSession.role)
+      scene.delegateClass = PhoneSceneDelegate.self
+      return scene
+    }
+  }
+
+  func application(_ application: UIApplication, didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
+  }
+
+  private func initializeFlipper(with application: UIApplication) {
+    #if DEBUG
+    #if FB_SONARKIT_ENABLED
+    let client = FlipperClient.shared()
+    let layoutDescriptorMapper = SKDescriptorMapper(defaults: ())
+    client?.add(FlipperKitLayoutPlugin(rootNode: application, with: layoutDescriptorMapper!))
+    client?.add(FKUserDefaultsPlugin(suiteName: nil))
+    client?.add(FlipperKitReactPlugin())
+    client?.add(FlipperKitNetworkPlugin(networkAdapter: SKIOSNetworkAdapter()))
+    client?.start()
+    #endif
+    #endif
+  }
+}
 ```
 
-### CarPlay Specific Setup (iOS)
+Paste the following to your bridging header file `Example-Bridging-Header.h`:
 
-Refer to the [CarPlay Documentation](/CarPlay.md#installing) for detailed setup instructions for iOS.
+```objc
+// ios/Example-Bridging-Header.h
+#import "RNCarPlay.h"
 
-### Android Auto Specific Setup
-
-Refer to the [Android Auto Documentation](/AndroidAuto.md#installing) for detailed setup instructions for Android.
-
-## Basic Usage
-
-This is the most basic example of how to use this library. Create templates and then push/pop them to the navigation stack natively.
-
-```jsx
-import { CarPlay, GridTemplate } from 'react-native-carplay';
-
-// Creates your template in the car app on the fly.
-const template = new GridTemplate({
-  title: 'Hello, World',
-});
-
-// Sets the root template for your car app.
-CarPlay.setRootTemplate(template);
+#ifdef DEBUG
+#ifdef FB_SONARKIT_ENABLED
+#import <FlipperKit/FlipperClient.h>
+#import <FlipperKitLayoutPlugin/FlipperKitLayoutPlugin.h>
+#import <FlipperKitUserDefaultsPlugin/FKUserDefaultsPlugin.h>
+#import <FlipperKitNetworkPlugin/FlipperKitNetworkPlugin.h>
+#import <SKIOSNetworkPlugin/SKIOSNetworkAdapter.h>
+#import <FlipperKitReactPlugin/FlipperKitReactPlugin.h>
+#endif
+#endif
 ```
 
-For more examples and detailed API usage, refer to [CarPlay Usage](/CarPlay.md#usage) and [Android Auto Usage](/AndroidAuto.md#usage).
+### 3. Add flags for Swift compiler in debug mode
 
-## CarPlay API
+Go to XCode project, hit `Build Settings`, search for `Swift Compiler - Custom Flags` and then under `Active Compilation Conditions`, add the following flags to `Debug` only:
 
-For more details on the CarPlay API, refer to the CarPlay API Docs.
+  - DEBUG
+  - FB_SONARKIT_ENABLED
 
-### CarPlay.setRootTemplate
+### 4. Create Phone Scene
 
-Sets the root template of CarPlay.
-This must be called before running any other CarPlay commands. Can be called multiple times.
+Add a new Swift file called `PhoneScene.swift`:
 
-```tsx
-CarPlay.setRootTemplate(template, /* animated */ false);
+```swift
+// ios/PhoneScene.swift
+import Foundation
+import UIKit
+import SwiftUI
+
+class PhoneSceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+  func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+    guard let appDelegate = (UIApplication.shared.delegate as? AppDelegate) else { return }
+    guard let windowScene = (scene as? UIWindowScene) else { return }
+
+    let rootViewController = UIViewController()
+    rootViewController.view = appDelegate.rootView;
+
+    let window = UIWindow(windowScene: windowScene)
+    window.rootViewController = rootViewController
+    self.window = window
+    window.makeKeyAndVisible()
+  }
+}
+
 ```
 
-### CarPlay.pushTemplate
+### 5. Create Car Scene
 
-Pushes a new template to the navigation stack.
-**Note** you cannot push the same template twice.
+Add a new Swift file called `CarScene.swift`
 
-```tsx
-CarPlay.pushTemplate(template, /* animated */ true);
+```swift
+// ios/CarScene.swift
+import Foundation
+import CarPlay
+
+class CarSceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
+  func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,
+                                  didConnect interfaceController: CPInterfaceController) {
+    RNCarPlay.connect(with: interfaceController, window: templateApplicationScene.carWindow);
+  }
+
+  func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene, didDisconnectInterfaceController interfaceController: CPInterfaceController) {
+    RNCarPlay.disconnect()
+  }
+}
+
 ```
 
-### CarPlay.popTemplate
+### 6. Update the manifest in Info.plist
 
-Pop currently presented template from the stack.
+Add the following ApplicationScene manifest to your `Info.plist` file.
 
-```tsx
-CarPlay.popTemplate(/* animated */ false);
+```xml
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>CPTemplateApplicationScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>CarPlay</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).CarSceneDelegate</string>
+				</dict>
+			</array>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>Phone</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).PhoneSceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 ```
 
-### CarPlay.popToTemplate
-
-Pop currently presented template from the stack to a specific template. The template must be in the stack.
-
-```tsx
-CarPlay.popToTemplate(template, /* animated */ false);
-```
-
-### CarPlay.popToRoot
-
-Pop the stack to root template.
-
-```tsx
-CarPlay.popToRoot(/* animated */ false);
-```
-
-### CarPlay.presentTemplate
-
-Present a template modally (Alerts and ActionSheets)
-
-```tsx
-CarPlay.presentTemplate(template, /* animated */ true);
-```
-
-### CarPlay.dismissTemplate
-
-Dismisses the current presented template
-
-```tsx
-CarPlay.dismissTemplate(/* animated */ true);
-```
-
-### CarPlay.registerOnConnect
-
-Register event listener for when CarPlay connects.
-
-```tsx
-CarPlay.registerOnConnect(() => {
-  console.log('CarPlay connected');
-  CarPlay.setRootTemplate(/* template */);
-});
-```
-
-## Example App
-
-Browse the example app source code [here](/apps/example/).
-
-To run the example app:
-
-```bash
-# Clone the repository
-git clone https://github.com/birkir/react-native-carplay.git
-
-# Navigate to the example directory
-cd react-native-carplay/apps/example
-
-# Install dependencies
-yarn install
-
-# Install Cocoapods
-npx pod-install
-
-# Run the iOS or Android app
-yarn run ios|android
-```
-
-## Declarative vs. Imperative
-
-This library is a wrapper around the template-based native CarPlay and Android Auto SDKs.
-
-We provide imperative APIs, as native templates are not designed for continuous updates, which would conflict with car display regulations. We expose limited template update capabilities [as allowed](https://developer.android.com/static/training/cars/Android%20for%20Cars%20App%20Library%20design%20guidelines.pdf#page=11&zoom=100,0,0) by each platform.
-
-Declarative React is available for map screens where UI freshness is unrestricted.
-
-We are open to expanding our declarative APIs in response to community feedback and where it aligns with platform constraints.
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines and code of conduct.
-
-A big thank you to all our contributors!
-
-![List of contributors](https://contrib.rocks/image?repo=birkir/react-native-carplay)
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
